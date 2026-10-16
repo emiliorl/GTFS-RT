@@ -11,9 +11,9 @@ sábados 10 min; domingos 15 min. Los tiempos de recorrido se calculan a 18 km/h
 Con los datos de operación de la Municipalidad se reemplazan directamente.
 
 El orden de las paradas y los sentidos se tomaron de los diagramas "Estaciones de Línea N" de muniguate.com
-(consultados el 2026-10-16); L1, L2 y L13 son circulares. Los horarios de servicio son los de cada página de línea.
+(consultados el 2026-10-16); L1, L2, L13, L18 y L18R son circulares. Los horarios de servicio son los de cada página de línea.
 
-Líneas incluidas: 1, 2, 6, 7, 12, 13 y 18 (la L18 es la troncal Plaza Barrios/FEGUA–Atlántida; el circuito San Rafael–Paraíso es aparte y se conecta en Atlántida, estación de transbordo). Las coordenadas de las estaciones
+Líneas incluidas: 1, 2, 6, 7, 12, 13 y 18 (la L18 y el circuito San Rafael–Paraíso son dos circuitos que se conectan en Atlántida, estación de transbordo). Las coordenadas de las estaciones
 provienen de los mapas de Google My Maps de la Municipalidad.
 `shapes.txt` se genera ajustando la secuencia de paradas de cada viaje al trazado oficial de cada línea (KML de Google My Maps
 en `reference/`, ver `shapes_lib.py`). El servicio expreso de la L12 (Centra Sur / Trébol / Plaza El Amate) se modela en ambos

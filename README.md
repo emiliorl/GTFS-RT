@@ -16,8 +16,8 @@ El orden de las paradas y los sentidos se tomaron de los diagramas "Estaciones d
 Líneas incluidas: 1, 2, 6, 7, 12, 13 y 18 (la L18 y el circuito San Rafael–Paraíso son dos circuitos que se conectan en Atlántida, estación de transbordo). Las coordenadas de las estaciones
 provienen de los mapas de Google My Maps de la Municipalidad.
 `shapes.txt` se genera ajustando la secuencia de paradas de cada viaje al trazado oficial de cada línea (KML de Google My Maps
-en `reference/`, ver `shapes_lib.py`). La L12 y su expreso (Centra Sur / Trébol / Plaza El Amate) son circuitos: ida hasta Plaza El Amate y regreso por el mismo corredor (descripción del operador).
-Pendiente: ruta 5 (TuBus).
+en `reference/Transmetro/`, ver `shapes_lib.py`). La L12 y su expreso (Centra Sur / Trébol / Plaza El Amate) son circuitos: ida hasta Plaza El Amate y regreso por el mismo corredor (descripción del operador).
+Pendiente: TuBus (rutas 5, 104, 105, 305, 402, 801 y 802): las páginas guardadas y los KML de sus mapas están en `reference/Tubus/` (ver `SOURCES.txt` allí), todavía sin convertir a GTFS.
 
 ## Datos cifrados
 
@@ -38,3 +38,7 @@ Requiere `pip install -r requirements.txt`.
 Guatemala (© colaboradores de OpenStreetMap, ODbL); caminar y los trasbordos entre líneas los resuelve OTP. El mapa de `docs/`
 tiene un panel "Planificar viaje": se elige origen y destino sobre el mapa y se consulta `http://localhost:8080/otp/gtfs/v1`
 (otro servidor con `?otp=URL`). En GitHub Pages el panel solo funciona si hay un OTP accesible; el feed no se publica.
+
+## Carpetas de referencia
+
+`reference/Transmetro/` (páginas de las líneas 1, 2, 6, 7, 12, 13 y 18 con sus KML) y `reference/Tubus/` (índice de TuBus, ruta 5 y rutas 104, 105, 305, 402, 801, 802 con sus KML). Son privadas: solo los KML y `SOURCES.txt` van en el archivo cifrado.

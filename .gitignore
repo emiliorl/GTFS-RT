@@ -1,0 +1,9 @@
+# Plaintext data/code stays local; only data.tar.gz.gpg (see protect.sh) is committed.
+/reference
+/gtfs
+/build.py
+/shapes_lib.py
+/transmetro_gtfs_draft.zip
+/stops.txt
+/stops_by_line.csv
+__pycache__/

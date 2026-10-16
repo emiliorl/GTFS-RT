@@ -67,13 +67,27 @@ class Line:
         coords = {r["stop_id"]: r for r in read("stops.txt")}
         sts = sorted((r for r in read("stop_times.txt") if r["trip_id"] == trip_id),
                      key=lambda r: int(r["stop_sequence"]))
-        self.stops, last_idx = [], 0
-        for r in sts:
+        # place stops in order along the shape: monotone DP (stop k at vertex i, i non-decreasing) minimising total
+        # stop-to-vertex distance, so a stop visited twice (e.g. a loop passing the same station) gets two positions
+        INF = float("inf")
+        n, K = len(self.pts), len(sts)
+        lls = [(float(coords[r["stop_id"]]["stop_lat"]), float(coords[r["stop_id"]]["stop_lon"])) for r in sts]
+        prev = [None] * K
+        cost = [haversine(lls[0], p) for p in self.pts]
+        for k in range(1, K):
+            best, arg, run = [INF] * n, [0] * n, (INF, 0)
+            for i in range(n):
+                if cost[i] < run[0]:
+                    run = (cost[i], i)
+                best[i], arg[i] = run[0] + haversine(lls[k], self.pts[i]), run[1]
+            prev[k], cost = arg, best
+        idxs = [min(range(n), key=cost.__getitem__)]
+        for k in range(K - 1, 0, -1):
+            idxs.append(prev[k][idxs[-1]])
+        idxs.reverse()
+        self.stops = []
+        for r, ll, idx in zip(sts, lls, idxs):
             s = coords[r["stop_id"]]
-            ll = (float(s["stop_lat"]), float(s["stop_lon"]))
-            # nearest shape vertex, searched forward only so a looping shape can't snap backwards
-            idx = min(range(last_idx, len(self.pts)), key=lambda i: haversine(ll, self.pts[i]))
-            last_idx = idx
             self.stops.append({"id": r["stop_id"], "seq": int(r["stop_sequence"]), "name": s["stop_name"],
                                "lat": ll[0], "lon": ll[1], "dist": self.cum[idx]})
         self.duration = hms(sts[-1]["arrival_time"]) - hms(sts[0]["departure_time"])

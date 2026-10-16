@@ -17,7 +17,6 @@ Líneas incluidas: 1, 2, 6, 7, 12, 13 y 18 (la L18 y el circuito San Rafael–Pa
 provienen de los mapas de Google My Maps de la Municipalidad.
 `shapes.txt` se genera ajustando la secuencia de paradas de cada viaje al trazado oficial de cada línea (KML de Google My Maps
 en `reference/`, ver `shapes_lib.py`). La L12 y su expreso (Centra Sur / Trébol / Plaza El Amate) son circuitos: ida hasta Plaza El Amate y regreso por el mismo corredor (descripción del operador).
-En la terminal Centra Sur (L12 y L12E) el trazado sigue el busway de OpenStreetMap (© colaboradores de OpenStreetMap, ODbL; `osm_busway.py`), porque el KML dibuja ambos sentidos casi encimados allí.
 Pendiente: ruta 5 (TuBus).
 
 ## Datos cifrados

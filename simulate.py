@@ -220,7 +220,7 @@ def main():
         shutil.rmtree(data_dir, ignore_errors=True)
         shutil.rmtree(ROOT / "docs" / "feed", ignore_errors=True)
         data_dir.mkdir(parents=True)
-        index = []
+        index, stops_idx = [], {}
         for tid in trips:
             line = Line(tid)
             frames = []
@@ -233,9 +233,17 @@ def main():
             p = data_dir / f"{tid}.json"
             p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
             write_feed(line, day, start_s, ROOT / "docs" / "feed" / tid)  # sample binary feeds next to the map
-            index.append({"id": tid, "label": f"{line.name} → {line.headsign}"})
+            short = line.route_id[1:]
+            index.append({"id": tid, "short": short, "name": line.name.split(" – ", 1)[1], "headsign": line.headsign,
+                          "label": f"{line.name} → {line.headsign}"})
+            for st in line.stops:
+                e = stops_idx.setdefault(st["id"], {"id": st["id"], "name": st["name"], "lat": st["lat"], "lon": st["lon"], "lines": []})
+                if short not in e["lines"]:
+                    e["lines"].append(short)
             print(f"wrote {p.name} ({p.stat().st_size // 1024} KiB, {len(frames)} frames)")
         (data_dir / "index.json").write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+        (data_dir / "stops.json").write_text(json.dumps(sorted(stops_idx.values(), key=lambda e: e["name"]), ensure_ascii=False,
+                                                       separators=(",", ":")), encoding="utf-8")
         return
 
     line = Line(a.trip)

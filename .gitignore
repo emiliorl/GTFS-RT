@@ -7,3 +7,5 @@
 /stops.txt
 /stops_by_line.csv
 __pycache__/
+.venv/
+/feed

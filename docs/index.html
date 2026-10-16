@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transmetro simulado</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --bg:#fff; --fg:#1b1f24; --muted:#5b6570; --panel:#f4f6f8; --line:#d5dbe1; --accent:#0b6bcb; --warn:#9a5b00; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#14181d; --fg:#e8ecf0; --muted:#97a3af; --panel:#1d232a; --line:#2e3640; --accent:#5aa9ff; --warn:#f0b254; } }
+  * { box-sizing:border-box; }
+  html,body { height:100%; margin:0; }
+  body { background:var(--bg); color:var(--fg); font:15px/1.4 system-ui,sans-serif; display:flex; flex-direction:column; }
+  header { padding:10px 16px; border-bottom:1px solid var(--line); display:flex; gap:8px 20px; flex-wrap:wrap; align-items:baseline; }
+  h1 { font-size:17px; margin:0; }
+  .sub { color:var(--muted); font-size:13px; }
+  .warn { color:var(--warn); font-size:13px; }
+  main { flex:1; display:flex; min-height:0; }
+  #map { flex:1; min-width:0; }
+  aside { width:320px; padding:12px 16px; background:var(--panel); border-left:1px solid var(--line); overflow:auto; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  select { width:100%; padding:6px; font:inherit; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; }
+  #next { font-size:30px; font-weight:650; margin:4px 0 0; color:var(--accent); }
+  #nextSub, #upcoming { color:var(--muted); font-size:13px; }
+  #upcoming { margin:8px 0 0; padding-left:18px; }
+  #clock { font-variant-numeric:tabular-nums; }
+  .bus { background:var(--accent); color:#fff; border:2px solid #fff; border-radius:50%; width:26px; height:26px; line-height:22px; text-align:center; font-size:13px; box-shadow:0 1px 4px #0006; }
+  @media (max-width:700px) { main { flex-direction:column; } aside { width:auto; border-left:0; border-top:1px solid var(--line); max-height:42%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Transmetro simulado</h1>
+  <span class="sub">Reloj simulado <b id="clock">--:--:--</b></span>
+  <span class="warn">Autobuses falsos con frecuencias estimadas: prueba del pipeline GTFS-RT, no datos reales.</span>
+</header>
+<main>
+  <div id="map"></div>
+  <aside>
+    <label for="stop">Estación</label>
+    <select id="stop"></select>
+    <p id="next">…</p>
+    <div id="nextSub"></div>
+    <ol id="upcoming"></ol>
+    <label for="speed">Velocidad</label>
+    <select id="speed"><option value="1">1× (tiempo real)</option><option value="5">5×</option><option value="20">20×</option></select>
+    <p class="sub">Las posiciones y los tiempos vienen de mensajes GTFS-RT (VehiclePositions y TripUpdates) generados por <code>simulate.py</code>.
+      Binarios de muestra: <a href="feed/vehicle_positions.pb">vehicle_positions.pb</a>, <a href="feed/trip_updates.pb">trip_updates.pb</a>.</p>
+  </aside>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, "0");
+const fmtClock = s => `${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s % 3600 / 60))}:${pad(Math.floor(s % 60))}`;
+
+fetch("data/replay.json").then(r => r.json()).then(init).catch(e => { $("next").textContent = "No se pudo cargar el feed"; console.error(e); });
+
+function init(d) {
+  const { line, frames } = d;
+  $("title").textContent = `${line.name} → ${line.headsign}`;
+  const map = L.map("map");
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+  const shape = L.polyline(line.shape, { color: "#0b6bcb", weight: 4, opacity: .7 }).addTo(map);
+  map.fitBounds(shape.getBounds(), { padding: [20, 20] });
+
+  const names = Object.fromEntries(line.stops.map(s => [s.id, s.name]));
+  line.stops.forEach(s => {
+    L.circleMarker([s.lat, s.lon], { radius: 5, color: "#fff", weight: 2, fillColor: "#333", fillOpacity: 1 })
+      .addTo(map).bindTooltip(s.name).on("click", () => { $("stop").value = s.id; render(); });
+    $("stop").add(new Option(s.name, s.id));
+  });
+  $("stop").value = line.stops[Math.floor(line.stops.length / 2)].id;
+  $("stop").onchange = () => render();
+
+  const markers = {};
+  let i = 0, acc = 0, last = performance.now();
+
+  function render() {
+    const f = frames[i], now = Number(f.vp.header.timestamp);
+    $("clock").textContent = fmtClock(f.t);
+    // vehicles
+    const seen = new Set();
+    (f.vp.entity || []).forEach(e => {
+      const v = e.vehicle, ll = [v.position.latitude, v.position.longitude];
+      seen.add(e.id);
+      if (!markers[e.id]) markers[e.id] = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div class="bus">🚌</div>`, iconSize: [26, 26] }) }).addTo(map);
+      markers[e.id].setLatLng(ll).bindTooltip(`${v.vehicle.label} · próxima: ${names[v.stopId] || v.stopId}`);
+    });
+    Object.keys(markers).forEach(k => { if (!seen.has(k)) { markers[k].remove(); delete markers[k]; } });
+    // next arrivals at the selected station, from TripUpdates
+    const stop = $("stop").value, arr = [];
+    (f.tu.entity || []).forEach(e => (e.tripUpdate.stopTimeUpdate || []).forEach(u => {
+      if (u.stopId === stop && Number(u.arrival.time) >= now) arr.push({ t: Number(u.arrival.time), bus: e.tripUpdate.vehicle.id });
+    }));
+    arr.sort((a, b) => a.t - b.t);
+    const mins = a => Math.max(0, Math.round((a.t - now) / 60));
+    if (!arr.length) {
+      $("next").textContent = "Sin buses próximos";
+      $("nextSub").textContent = "Aún no hay predicciones para esta estación.";
+      $("upcoming").innerHTML = "";
+    } else {
+      $("next").textContent = mins(arr[0]) === 0 ? "Llegando" : `${mins(arr[0])} min`;
+      $("nextSub").textContent = `Próximo bus en ${names[stop]}`;
+      $("upcoming").innerHTML = arr.slice(1, 4).map(a => `<li>${mins(a)} min</li>`).join("");
+    }
+  }
+
+  function tick(t) {
+    acc += (t - last) / 1000 * Number($("speed").value);
+    last = t;
+    while (acc >= d.step) { acc -= d.step; i = (i + 1) % frames.length; render(); }
+    requestAnimationFrame(tick);
+  }
+  render();
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

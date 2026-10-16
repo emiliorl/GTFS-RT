@@ -25,3 +25,10 @@ Pendiente: ruta 5 (TuBus).
 Por ahora los datos y el código que los genera (`build.py`, `shapes_lib.py`, `gtfs/`, el zip, los KML) **no** se publican en claro:
 se guardan cifrados (AES-256) en `data.tar.gz.gpg`. `./protect.sh` cifra y `./unprotect.sh` descifra, usando la frase de
 contraseña del archivo `~/.gtfs-rt-passphrase` (fuera del repositorio).
+
+## Simulación en tiempo real (GTFS-RT)
+
+`simulate.py` (L7 sentido La Merced) mueve buses falsos por el `shape` con la frecuencia estimada y genera `VehiclePositions` y
+`TripUpdates` válidos (`--once`, `--live` cada 10 s, `--replay` para el mapa). Prueba el pipeline, no la exactitud de los datos.
+`docs/` es el mapa para GitHub Pages (reproduce 30 min de feed simulado; muestra los buses y "próximo bus en N min").
+Requiere `pip install -r requirements.txt`.

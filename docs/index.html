@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Transmetro Guatemala</title>
+<title>Transmetro y TuBus Guatemala</title>
 <meta name="description" content="Borrador no oficial: planificador de viajes a pie + bus y demo de buses simulados (GTFS-RT).">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
@@ -23,8 +23,8 @@
   .app { display:grid; grid-template-columns:400px 1fr; height:100%; }
   #map { min-width:0; }
   .panel { display:flex; flex-direction:column; min-height:0; background:var(--bg); border-right:1px solid var(--line); z-index:500; }
-  .brand { padding:14px 18px 6px; display:flex; align-items:baseline; gap:10px; }
-  .brand b { font-size:19px; letter-spacing:-.01em; }
+  .brand { padding:14px 18px 6px; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 10px; }
+  .brand b { font-size:19px; letter-spacing:-.01em; white-space:nowrap; }
   .brand span { color:var(--muted); font-size:12px; }
   .tabs { display:flex; gap:4px; margin:6px 14px 0; padding:4px; background:var(--card); border:1px solid var(--line); border-radius:12px; }
   .tabs button { flex:1; border:0; background:none; padding:9px 8px; border-radius:9px; font-weight:600; color:var(--muted); }
@@ -76,6 +76,8 @@
 
   /* lines */
   .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .netlabel { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:10px 0 4px; }
+  .netlabel:first-child { margin-top:0; }
   .chip { border:0; border-radius:10px; padding:3px; background:none; }
   .chip .badge { height:34px; min-width:40px; font-size:15px; border-radius:9px; opacity:.72; }
   .chip[aria-pressed="true"] .badge { opacity:1; box-shadow:0 0 0 2px var(--card), 0 0 0 4px var(--c); }
@@ -100,7 +102,7 @@
 <body>
 <div class="app">
   <aside class="panel">
-    <div class="brand"><b>🚌 Transmetro</b><span>Guatemala · borrador no oficial</span></div>
+    <div class="brand"><b>🚌 Transmetro + TuBus</b><span>Guatemala · borrador no oficial</span></div>
     <div class="tabs" role="tablist">
       <button role="tab" id="t-plan" aria-selected="true" data-tab="plan">Planificar viaje</button>
       <button role="tab" id="t-lines" aria-selected="false" data-tab="lines">Líneas en vivo</button>
@@ -191,6 +193,7 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, att
 map.setView([14.6, -90.52], 12);
 const linesLayer = L.layerGroup(), planLayer = L.layerGroup().addTo(map);
 let tab = "plan", stops = [], index = [], lineId = null;
+const INIT_HASH = location.hash.slice(1);   // read before setTab() rewrites the hash
 
 // ------------------------------------------------------------------ tabs
 function setTab(t) {
@@ -204,10 +207,13 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(
 
 Promise.all([fetch("data/index.json").then(r => r.json()), fetch("data/stops.json").then(r => r.json())]).then(([i, s]) => {
   index = i; stops = s;
-  $("chips").innerHTML = index.map(l => `<button class="chip" data-id="${l.id}" style="--c:${col(l.short)[0]}" aria-pressed="false" title="${l.name}">${badge(l.short)}</button>`).join("");
+  index.forEach(l => { if (l.color) COLORS[l.short] = ["#" + l.color, "#" + (l.text || "FFFFFF")]; });   // TuBus colours come from its feed
+  const NETS = { transmetro: "Transmetro", tubus: "TuBus" };
+  $("chips").innerHTML = Object.entries(NETS).map(([k, label]) => index.some(l => l.network === k)
+    ? `<div class="netlabel">${label}</div><div class="chips">` + index.filter(l => l.network === k).map(l =>
+      `<button class="chip" data-id="${l.id}" style="--c:${col(l.short)[0]}" aria-pressed="false" title="${l.name}">${badge(l.short)}</button>`).join("") + "</div>" : "").join("");
   document.querySelectorAll(".chip").forEach(b => b.onclick = () => loadLine(b.dataset.id));
-  const h = location.hash.slice(1);
-  if (index.some(l => l.id === h)) { lineId = h; setTab("lines"); loadLine(h); }
+  if (index.some(l => l.id === INIT_HASH)) { lineId = INIT_HASH; setTab("lines"); loadLine(INIT_HASH); }
 }).catch(e => { $("msg").textContent = "No se pudieron cargar los datos."; console.error(e); });
 
 // ------------------------------------------------------------------ lines demo

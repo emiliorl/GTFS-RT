@@ -12,3 +12,6 @@ __pycache__/
 /otp/*.jar
 /otp/data/
 /otp/*.log
+/build_tubus.py
+/gtfs_tubus
+/tubus_gtfs_draft.zip

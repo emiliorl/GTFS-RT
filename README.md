@@ -17,7 +17,7 @@ Líneas incluidas: 1, 2, 6, 7, 12, 13 y 18 (la L18 y el circuito San Rafael–Pa
 provienen de los mapas de Google My Maps de la Municipalidad.
 `shapes.txt` se genera ajustando la secuencia de paradas de cada viaje al trazado oficial de cada línea (KML de Google My Maps
 en `reference/Transmetro/`, ver `shapes_lib.py`). La L12 y su expreso (Centra Sur / Trébol / Plaza El Amate) son circuitos: ida hasta Plaza El Amate y regreso por el mismo corredor (descripción del operador).
-Pendiente: TuBus (rutas 5, 104, 105, 305, 402, 801 y 802): las páginas guardadas y los KML de sus mapas están en `reference/Tubus/` (ver `SOURCES.txt` allí), todavía sin convertir a GTFS.
+TuBus tiene su propio feed (ver abajo).
 
 ## Datos cifrados
 
@@ -42,3 +42,19 @@ tiene un panel "Planificar viaje": se elige origen y destino sobre el mapa y se 
 ## Carpetas de referencia
 
 `reference/Transmetro/` (páginas de las líneas 1, 2, 6, 7, 12, 13 y 18 con sus KML) y `reference/Tubus/` (índice de TuBus, ruta 5 y rutas 104, 105, 305, 402, 801, 802 con sus KML). Son privadas: solo los KML y `SOURCES.txt` van en el archivo cifrado.
+
+## TuBus (feed aparte)
+
+`python build_tubus.py` genera `gtfs_tubus/` y `tubus_gtfs_draft.zip` a partir de `reference/Tubus/` (KML de cada ruta: trazado y
+paradas numeradas). Es un feed **separado** del de Transmetro pero con identificadores propios (agencia `TUBUS`, rutas `TB5`, `TB104`…,
+paradas `tb_NNN`, servicios `TB_WEEKDAY`…), así que se pueden cargar juntos (OpenTripPlanner lee varios zips; `otp/run.sh` ya lo hace)
+o fusionar concatenando archivos. Rutas: 5, 104, 105, 305, 402, 801 y 802.
+
+**Supuestos (la Municipalidad no publica horarios, frecuencias ni sentidos de TuBus):**
+- Orden de paradas = numeración de la Municipalidad, que va en el orden de recorrido; cada ruta es un circuito (ida y vuelta por
+  sus dos costados) que cierra en la primera parada. La ruta 5 usa estaciones con nombre: el orden sigue el trazado y las plataformas
+  Norte/Sur se asignan al costado por el que pasa el recorrido.
+- Ruta 104: las paradas #61 y #62 están fuera de secuencia en el mapa; se reubican donde menos distancia añaden.
+- Rutas 105 y 402: se omiten #128 y #84 (paradas compartidas con otras rutas que aparecen en su mapa).
+- Horario 05:00–20:00 (sáb. 05:30–19:00, dom. 06:00–19:00); frecuencia 10 min en horas pico (06–09 y 17–20), 15 min el resto, sábado 15 y
+  domingo 20; velocidad 16 km/h + 20 s por parada. Todo esto es **estimado**.

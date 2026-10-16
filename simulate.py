@@ -8,7 +8,7 @@ The goal is to prove the pipeline, not to be accurate: positions come from the (
   python simulate.py --live                  # rewrite feed/*.pb every 10 s (sim clock = wall clock + offset)
   python simulate.py --replay                # docs/data/replay.json for the GitHub Pages map
 """
-import argparse, bisect, csv, functools, json, math, random, shutil, time
+import argparse, bisect, csv, functools, json, math, random, re, shutil, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,8 +22,8 @@ DWELL = 20  # seconds at each stop, already baked into the scheduled trip time
 
 
 @functools.lru_cache(maxsize=None)
-def read(name):
-    with open(GTFS / name, encoding="utf-8", newline="") as f:
+def read(name, gtfs=GTFS):
+    with open(gtfs / name, encoding="utf-8", newline="") as f:
         return tuple(csv.DictReader(f))
 
 
@@ -49,23 +49,25 @@ def bearing(a, b):
 class Line:
     """One trip pattern: shape, stops projected on it, and time/distance mapping."""
 
-    def __init__(self, trip_id):
+    def __init__(self, trip_id, gtfs=GTFS):
         self.trip_id = trip_id
-        trip = next(t for t in read("trips.txt") if t["trip_id"] == trip_id)
+        trip = next(t for t in read("trips.txt", gtfs) if t["trip_id"] == trip_id)
         self.route_id, self.shape_id, self.headsign = trip["route_id"], trip["shape_id"], trip["trip_headsign"]
         self.direction = int(trip["direction_id"])
-        route = next(r for r in read("routes.txt") if r["route_id"] == self.route_id)
-        self.name = f"Línea {route['route_short_name']} – {route['route_long_name']}"
+        route = next(r for r in read("routes.txt", gtfs) if r["route_id"] == self.route_id)
+        self.short = re.sub(r"^(TB|L)", "", self.route_id)     # 12E / 18R keep their suffix; TuBus routes are TB<n>
+        self.color = route.get("route_color") or None; self.text_color = route.get("route_text_color") or None
+        self.name = f"Línea {route['route_short_name']} – {route['route_long_name']}" if self.route_id.startswith("L") else route["route_long_name"]
 
-        pts = sorted((r for r in read("shapes.txt") if r["shape_id"] == self.shape_id),
+        pts = sorted((r for r in read("shapes.txt", gtfs) if r["shape_id"] == self.shape_id),
                      key=lambda r: int(r["shape_pt_sequence"]))
         self.pts = [(float(r["shape_pt_lat"]), float(r["shape_pt_lon"])) for r in pts]
         self.cum = [0.0]
         for a, b in zip(self.pts, self.pts[1:]):
             self.cum.append(self.cum[-1] + haversine(a, b))
 
-        coords = {r["stop_id"]: r for r in read("stops.txt")}
-        sts = sorted((r for r in read("stop_times.txt") if r["trip_id"] == trip_id),
+        coords = {r["stop_id"]: r for r in read("stops.txt", gtfs)}
+        sts = sorted((r for r in read("stop_times.txt", gtfs) if r["trip_id"] == trip_id),
                      key=lambda r: int(r["stop_sequence"]))
         # place stops in order along the shape: monotone DP (stop k at vertex i, i non-decreasing) minimising total
         # stop-to-vertex distance, so a stop visited twice (e.g. a loop passing the same station) gets two positions
@@ -96,7 +98,7 @@ class Line:
             s["offset"] = round(self.duration * s["dist"] / total)
 
         self.windows = [(hms(r["start_time"]), hms(r["end_time"]), int(r["headway_secs"]))
-                        for r in read("frequencies.txt") if r["trip_id"] == trip_id]
+                        for r in read("frequencies.txt", gtfs) if r["trip_id"] == trip_id]
 
     def departures(self, lo, hi):
         """Trip start times (seconds after midnight) in [lo, hi)."""
@@ -215,32 +217,36 @@ def main():
         a.once = True
 
     if a.replay:
-        trips = [t["trip_id"] for t in read("trips.txt") if t["service_id"] == "WEEKDAY"] if a.trip == "all" else [a.trip]
+        nets = [("transmetro", GTFS), ("tubus", ROOT / "gtfs_tubus")] if a.trip == "all" else [("transmetro", GTFS)]
         data_dir = ROOT / "docs" / "data"
         shutil.rmtree(data_dir, ignore_errors=True)
         shutil.rmtree(ROOT / "docs" / "feed", ignore_errors=True)
         data_dir.mkdir(parents=True)
         index, stops_idx = [], {}
-        for tid in trips:
-            line = Line(tid)
-            frames = []
-            for t in range(start_s, start_s + a.minutes * 60, a.step):
-                vp, tu = build_feed(line, day, t)
-                frames.append({"t": t, "vp": MessageToDict(vp), "tu": MessageToDict(tu)})
-            data = {"line": {"name": line.name, "headsign": line.headsign, "shape": [[round(p[0], 6), round(p[1], 6)] for p in line.pts],
-                             "stops": [{k: s[k] for k in ("id", "seq", "name", "lat", "lon")} for s in line.stops]},
-                    "day": day.isoformat(), "step": a.step, "frames": frames}
-            p = data_dir / f"{tid}.json"
-            p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
-            write_feed(line, day, start_s, ROOT / "docs" / "feed" / tid)  # sample binary feeds next to the map
-            short = line.route_id[1:]
-            index.append({"id": tid, "short": short, "name": line.name.split(" – ", 1)[1], "headsign": line.headsign,
-                          "label": f"{line.name} → {line.headsign}"})
-            for st in line.stops:
-                e = stops_idx.setdefault(st["id"], {"id": st["id"], "name": st["name"], "lat": st["lat"], "lon": st["lon"], "lines": []})
-                if short not in e["lines"]:
-                    e["lines"].append(short)
-            print(f"wrote {p.name} ({p.stat().st_size // 1024} KiB, {len(frames)} frames)")
+        for net, gdir in nets:
+            if not (gdir / "trips.txt").exists():
+                continue
+            trips = [t["trip_id"] for t in read("trips.txt", gdir) if t["service_id"].endswith("WEEKDAY")] if a.trip == "all" else [a.trip]
+            for tid in trips:
+                line = Line(tid, gdir)
+                frames = []
+                for t in range(start_s, start_s + a.minutes * 60, a.step):
+                    vp, tu = build_feed(line, day, t)
+                    frames.append({"t": t, "vp": MessageToDict(vp), "tu": MessageToDict(tu)})
+                data = {"line": {"name": line.name, "headsign": line.headsign, "shape": [[round(p[0], 6), round(p[1], 6)] for p in line.pts],
+                                 "stops": [{k: s[k] for k in ("id", "seq", "name", "lat", "lon")} for s in line.stops]},
+                        "day": day.isoformat(), "step": a.step, "frames": frames}
+                p = data_dir / f"{tid}.json"
+                p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+                write_feed(line, day, start_s, ROOT / "docs" / "feed" / tid)  # sample binary feeds next to the map
+                short = line.short
+                index.append({"id": tid, "network": net, "short": short, "name": line.name.split(" – ", 1)[-1], "headsign": line.headsign,
+                              "color": line.color, "text": line.text_color, "label": f"{line.name} → {line.headsign}"})
+                for st in line.stops:
+                    e = stops_idx.setdefault(st["id"], {"id": st["id"], "name": st["name"], "lat": st["lat"], "lon": st["lon"], "network": net, "lines": []})
+                    if short not in e["lines"]:
+                        e["lines"].append(short)
+                print(f"wrote {p.name} ({p.stat().st_size // 1024} KiB, {len(frames)} frames)")
         (data_dir / "index.json").write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
         (data_dir / "stops.json").write_text(json.dumps(sorted(stops_idx.values(), key=lambda e: e["name"]), ensure_ascii=False,
                                                        separators=(",", ":")), encoding="utf-8")

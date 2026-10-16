@@ -11,7 +11,7 @@ sábados 10 min; domingos 15 min. Los tiempos de recorrido se calculan a 18 km/h
 Con los datos de operación de la Municipalidad se reemplazan directamente.
 
 El orden de las paradas y los sentidos se tomaron de los diagramas "Estaciones de Línea N" de muniguate.com
-(consultados el 2026-10-16); L1, L2, L6, L12, L12E, L13, L18 y L18R son circulares. Los horarios de servicio son los de cada página de línea.
+(consultados el 2026-10-16); todas las líneas son circuitos (L1, L2, L6, L7, L12, L12E, L13, L18 y L18R). Los horarios de servicio son los de cada página de línea.
 
 Líneas incluidas: 1, 2, 6, 7, 12, 13 y 18 (la L18 y el circuito San Rafael–Paraíso son dos circuitos que se conectan en Atlántida, estación de transbordo). Las coordenadas de las estaciones
 provienen de los mapas de Google My Maps de la Municipalidad.

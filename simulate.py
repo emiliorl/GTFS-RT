@@ -8,7 +8,7 @@ The goal is to prove the pipeline, not to be accurate: positions come from the (
   python simulate.py --live                  # rewrite feed/*.pb every 10 s (sim clock = wall clock + offset)
   python simulate.py --replay                # docs/data/replay.json for the GitHub Pages map
 """
-import argparse, bisect, csv, json, math, random, time
+import argparse, bisect, csv, functools, json, math, random, shutil, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -21,9 +21,10 @@ TZ = timezone(timedelta(hours=-6))  # America/Guatemala, no DST
 DWELL = 20  # seconds at each stop, already baked into the scheduled trip time
 
 
+@functools.lru_cache(maxsize=None)
 def read(name):
     with open(GTFS / name, encoding="utf-8", newline="") as f:
-        return list(csv.DictReader(f))
+        return tuple(csv.DictReader(f))
 
 
 def hms(s):
@@ -52,6 +53,7 @@ class Line:
         self.trip_id = trip_id
         trip = next(t for t in read("trips.txt") if t["trip_id"] == trip_id)
         self.route_id, self.shape_id, self.headsign = trip["route_id"], trip["shape_id"], trip["trip_headsign"]
+        self.direction = int(trip["direction_id"])
         route = next(r for r in read("routes.txt") if r["route_id"] == self.route_id)
         self.name = f"Línea {route['route_short_name']} – {route['route_long_name']}"
 
@@ -136,7 +138,7 @@ def build_feed(line, day, now_s):
             continue
         tid = f"{line.trip_id}@{start // 3600:02d}{start % 3600 // 60:02d}"
         td = lambda e: (setattr(e.trip, "trip_id", line.trip_id), setattr(e.trip, "route_id", line.route_id),
-                        setattr(e.trip, "direction_id", 0),
+                        setattr(e.trip, "direction_id", line.direction),
                         setattr(e.trip, "start_time", f"{start // 3600:02d}:{start % 3600 // 60:02d}:{start % 60:02d}"),
                         setattr(e.trip, "start_date", day.strftime("%Y%m%d")),
                         setattr(e.trip, "schedule_relationship", rt.TripDescriptor.SCHEDULED))
@@ -182,17 +184,16 @@ def write_feed(line, day, now_s, out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--trip", default="L7_0_WEEKDAY")
+    ap.add_argument("--trip", default="L7_0_WEEKDAY", help="trip_id, or 'all' with --replay (every WEEKDAY pattern)")
     ap.add_argument("--out", type=Path, default=ROOT / "feed")
     ap.add_argument("--at", default=None, help="sim clock start HH:MM (default: wall clock)")
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--replay", action="store_true")
-    ap.add_argument("--minutes", type=int, default=40, help="replay length")
-    ap.add_argument("--step", type=int, default=10, help="seconds between frames")
+    ap.add_argument("--minutes", type=int, default=20, help="replay length")
+    ap.add_argument("--step", type=int, default=20, help="seconds between frames")
     a = ap.parse_args()
 
-    line = Line(a.trip)
     now = datetime.now(TZ)
     day = now.date()
     start_s = hms(a.at + ":00") if a.at else now.hour * 3600 + now.minute * 60 + now.second
@@ -200,20 +201,30 @@ def main():
         a.once = True
 
     if a.replay:
-        frames = []
-        for t in range(start_s, start_s + a.minutes * 60, a.step):
-            vp, tu = build_feed(line, day, t)
-            frames.append({"t": t, "vp": MessageToDict(vp), "tu": MessageToDict(tu)})
-        data = {"line": {"name": line.name, "headsign": line.headsign, "shape": [[round(p[0], 6), round(p[1], 6)] for p in line.pts],
-                         "stops": [{k: s[k] for k in ("id", "seq", "name", "lat", "lon")} for s in line.stops]},
-                "day": day.isoformat(), "step": a.step, "frames": frames}
-        p = ROOT / "docs" / "data" / "replay.json"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
-        print(f"wrote {p} ({p.stat().st_size // 1024} KiB, {len(frames)} frames)")
-        write_feed(line, day, start_s, ROOT / "docs" / "feed")  # sample binary feeds next to the map
+        trips = [t["trip_id"] for t in read("trips.txt") if t["service_id"] == "WEEKDAY"] if a.trip == "all" else [a.trip]
+        data_dir = ROOT / "docs" / "data"
+        shutil.rmtree(data_dir, ignore_errors=True)
+        shutil.rmtree(ROOT / "docs" / "feed", ignore_errors=True)
+        data_dir.mkdir(parents=True)
+        index = []
+        for tid in trips:
+            line = Line(tid)
+            frames = []
+            for t in range(start_s, start_s + a.minutes * 60, a.step):
+                vp, tu = build_feed(line, day, t)
+                frames.append({"t": t, "vp": MessageToDict(vp), "tu": MessageToDict(tu)})
+            data = {"line": {"name": line.name, "headsign": line.headsign, "shape": [[round(p[0], 6), round(p[1], 6)] for p in line.pts],
+                             "stops": [{k: s[k] for k in ("id", "seq", "name", "lat", "lon")} for s in line.stops]},
+                    "day": day.isoformat(), "step": a.step, "frames": frames}
+            p = data_dir / f"{tid}.json"
+            p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
+            write_feed(line, day, start_s, ROOT / "docs" / "feed" / tid)  # sample binary feeds next to the map
+            index.append({"id": tid, "label": f"{line.name} → {line.headsign}"})
+            print(f"wrote {p.name} ({p.stat().st_size // 1024} KiB, {len(frames)} frames)")
+        (data_dir / "index.json").write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
         return
 
+    line = Line(a.trip)
     t0 = time.time()
     while True:
         t = start_s + int(time.time() - t0)

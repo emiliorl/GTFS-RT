@@ -37,6 +37,8 @@
 <main>
   <div id="map"></div>
   <aside>
+    <label for="line">Línea</label>
+    <select id="line"></select>
     <label for="stop">Estación</label>
     <select id="stop"></select>
     <p id="next">…</p>
@@ -45,7 +47,7 @@
     <label for="speed">Velocidad</label>
     <select id="speed"><option value="1">1× (tiempo real)</option><option value="5">5×</option><option value="20">20×</option></select>
     <p class="sub">Las posiciones y los tiempos vienen de mensajes GTFS-RT (VehiclePositions y TripUpdates) generados por <code>simulate.py</code>.
-      Binarios de muestra: <a href="feed/vehicle_positions.pb">vehicle_positions.pb</a>, <a href="feed/trip_updates.pb">trip_updates.pb</a>.</p>
+      Binarios de muestra: <a id="vpLink" href="#">vehicle_positions.pb</a>, <a id="tuLink" href="#">trip_updates.pb</a>.</p>
   </aside>
 </main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -54,26 +56,46 @@ const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2, "0");
 const fmtClock = s => `${pad(Math.floor(s / 3600) % 24)}:${pad(Math.floor(s % 3600 / 60))}:${pad(Math.floor(s % 60))}`;
 
-fetch("data/replay.json").then(r => r.json()).then(init).catch(e => { $("next").textContent = "No se pudo cargar el feed"; console.error(e); });
+const map = L.map("map");
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+let layers = [], stopTimer = null;
+
+fetch("data/index.json").then(r => r.json()).then(idx => {
+  idx.forEach(l => $("line").add(new Option(l.label, l.id)));
+  const saved = location.hash.slice(1);
+  if (idx.some(l => l.id === saved)) $("line").value = saved;
+  $("line").onchange = () => { location.hash = $("line").value; load($("line").value); };
+  load($("line").value);
+}).catch(e => { $("next").textContent = "No se pudo cargar el feed"; console.error(e); });
+
+function load(id) {
+  $("next").textContent = "…";
+  $("vpLink").href = `feed/${id}/vehicle_positions.pb`;
+  $("tuLink").href = `feed/${id}/trip_updates.pb`;
+  fetch(`data/${id}.json`).then(r => r.json()).then(init).catch(e => { $("next").textContent = "No se pudo cargar el feed"; console.error(e); });
+}
 
 function init(d) {
   const { line, frames } = d;
   $("title").textContent = `${line.name} → ${line.headsign}`;
-  const map = L.map("map");
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+  if (stopTimer) cancelAnimationFrame(stopTimer);
+  layers.forEach(l => l.remove()); layers = [];
+  $("stop").innerHTML = "";
   const shape = L.polyline(line.shape, { color: "#0b6bcb", weight: 4, opacity: .7 }).addTo(map);
+  layers.push(shape);
   map.fitBounds(shape.getBounds(), { padding: [20, 20] });
 
   const names = Object.fromEntries(line.stops.map(s => [s.id, s.name]));
   line.stops.forEach(s => {
-    L.circleMarker([s.lat, s.lon], { radius: 5, color: "#fff", weight: 2, fillColor: "#333", fillOpacity: 1 })
-      .addTo(map).bindTooltip(s.name).on("click", () => { $("stop").value = s.id; render(); });
+    layers.push(L.circleMarker([s.lat, s.lon], { radius: 5, color: "#fff", weight: 2, fillColor: "#333", fillOpacity: 1 })
+      .addTo(map).bindTooltip(s.name).on("click", () => { $("stop").value = s.id; render(); }));
     $("stop").add(new Option(s.name, s.id));
   });
   $("stop").value = line.stops[Math.floor(line.stops.length / 2)].id;
   $("stop").onchange = () => render();
 
   const markers = {};
+  layers.push({ remove: () => Object.values(markers).forEach(m => m.remove()) });
   let i = 0, acc = 0, last = performance.now();
 
   function render() {
@@ -110,10 +132,10 @@ function init(d) {
     acc += (t - last) / 1000 * Number($("speed").value);
     last = t;
     while (acc >= d.step) { acc -= d.step; i = (i + 1) % frames.length; render(); }
-    requestAnimationFrame(tick);
+    stopTimer = requestAnimationFrame(tick);
   }
   render();
-  requestAnimationFrame(tick);
+  stopTimer = requestAnimationFrame(tick);
 }
 </script>
 </body>

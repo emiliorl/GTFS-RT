@@ -5,8 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 PF="${GTFS_PASSFILE:-$HOME/.gtfs-rt-passphrase}"
 [ -f "$PF" ] || { echo "missing passphrase file: $PF" >&2; exit 1; }
-FILES=(build.py shapes_lib.py gtfs transmetro_gtfs_draft.zip stops.txt stops_by_line.csv)
-KMLS=$(ls reference/*.kml 2>/dev/null || true)
+FILES=(osm_busway.py build.py shapes_lib.py gtfs transmetro_gtfs_draft.zip stops.txt stops_by_line.csv)
+KMLS=$(ls reference/*.kml reference/*.json 2>/dev/null || true)
 tar -czf - "${FILES[@]}" $KMLS | gpg --batch --yes --pinentry-mode loopback --passphrase-file "$PF" \
   --symmetric --cipher-algo AES256 -o data.tar.gz.gpg
 echo "wrote data.tar.gz.gpg"

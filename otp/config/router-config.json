@@ -1,0 +1,6 @@
+{
+  "routingDefaults": {
+    "walk": { "speed": 1.3 },
+    "maxDirectStreetDuration": "1h"
+  }
+}

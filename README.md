@@ -31,3 +31,10 @@ contraseña del archivo `~/.gtfs-rt-passphrase` (fuera del repositorio).
 `TripUpdates` válidos (`--once`, `--live` cada 10 s, `--replay` para el mapa). Prueba el pipeline, no la exactitud de los datos.
 `docs/` es el mapa para GitHub Pages (reproduce 30 min de feed simulado; muestra los buses y "próximo bus en N min").
 Requiere `pip install -r requirements.txt`.
+
+## Planificador de viajes (a pie + bus)
+
+`otp/run.sh` levanta [OpenTripPlanner](https://www.opentripplanner.org/) 2.6 en local con este GTFS y el mapa de OpenStreetMap de
+Guatemala (© colaboradores de OpenStreetMap, ODbL); caminar y los trasbordos entre líneas los resuelve OTP. El mapa de `docs/`
+tiene un panel "Planificar viaje": se elige origen y destino sobre el mapa y se consulta `http://localhost:8080/otp/gtfs/v1`
+(otro servidor con `?otp=URL`). En GitHub Pages el panel solo funciona si hay un OTP accesible; el feed no se publica.

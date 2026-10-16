@@ -25,6 +25,15 @@
   #upcoming { margin:8px 0 0; padding-left:18px; }
   #clock { font-variant-numeric:tabular-nums; }
   .bus { background:var(--accent); color:#fff; border:2px solid #fff; border-radius:50%; width:26px; height:26px; line-height:22px; text-align:center; font-size:13px; box-shadow:0 1px 4px #0006; }
+  details.plan { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:8px; }
+  details.plan summary { cursor:pointer; font-weight:600; }
+  .plan button { font:inherit; padding:5px 9px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--fg); cursor:pointer; }
+  .plan button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .plan .row { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0; align-items:center; }
+  .plan input { font:inherit; padding:4px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; }
+  #planOut { margin:6px 0 0; padding:0; list-style:none; font-size:13px; }
+  #planOut li { padding:3px 0; border-top:1px solid var(--line); }
+  #planMsg { color:var(--muted); font-size:13px; margin:4px 0 0; }
   @media (max-width:700px) { main { flex-direction:column; } aside { width:auto; border-left:0; border-top:1px solid var(--line); max-height:42%; } }
 </style>
 </head>
@@ -37,6 +46,13 @@
 <main>
   <div id="map"></div>
   <aside>
+    <details class="plan">
+      <summary>Planificar viaje (a pie + bus)</summary>
+      <div class="row"><button id="pickA">Origen</button><button id="pickB">Destino</button><button id="planClear">Borrar</button></div>
+      <div class="row"><input id="planDate" type="date"><input id="planTime" type="time" value="08:00"></div>
+      <p id="planMsg">Pulsa Origen o Destino y luego un punto del mapa.</p>
+      <ul id="planOut"></ul>
+    </details>
     <label for="line">Línea</label>
     <select id="line"></select>
     <label for="stop">Estación</label>
@@ -136,6 +152,69 @@ function init(d) {
   }
   render();
   stopTimer = requestAnimationFrame(tick);
+}
+
+// ---- Trip planner: OpenTripPlanner (GraphQL) over the same GTFS, walking included -------------------------------------
+const OTP = new URLSearchParams(location.search).get("otp") || "http://localhost:8080/otp/gtfs/v1";
+const planLayer = L.layerGroup().addTo(map);
+const plan = { a: null, b: null, pick: null };
+(() => {
+  const d = new Date(); while ([0, 6].includes(d.getDay())) d.setDate(d.getDate() + 1);
+  $("planDate").value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+})();
+function decodePoly(str) {  // Google encoded polyline, precision 5
+  const out = []; let i = 0, lat = 0, lon = 0;
+  while (i < str.length) {
+    for (const k of [0, 1]) {
+      let b, shift = 0, r = 0;
+      do { b = str.charCodeAt(i++) - 63; r |= (b & 31) << shift; shift += 5; } while (b >= 32);
+      const v = r & 1 ? ~(r >> 1) : r >> 1;
+      if (k === 0) lat += v; else lon += v;
+    }
+    out.push([lat / 1e5, lon / 1e5]);
+  }
+  return out;
+}
+const setPick = k => { plan.pick = plan.pick === k ? null : k; $("pickA").classList.toggle("on", plan.pick === "a"); $("pickB").classList.toggle("on", plan.pick === "b"); map.getContainer().style.cursor = plan.pick ? "crosshair" : ""; };
+$("pickA").onclick = () => setPick("a");
+$("pickB").onclick = () => setPick("b");
+$("planClear").onclick = () => { plan.a = plan.b = null; planLayer.clearLayers(); $("planOut").innerHTML = ""; $("planMsg").textContent = "Pulsa Origen o Destino y luego un punto del mapa."; setPick(null); };
+$("planDate").onchange = $("planTime").onchange = () => runPlan();
+map.on("click", e => {
+  if (!plan.pick) return;
+  plan[plan.pick] = e.latlng;
+  const next = plan.pick === "a" && !plan.b ? "b" : null;
+  setPick(plan.pick); if (next) setPick(next);
+  runPlan();
+});
+async function runPlan() {
+  planLayer.clearLayers();
+  [["a", "#2e9d4f", "A"], ["b", "#d64545", "B"]].forEach(([k, c, t]) => plan[k] &&
+    L.marker(plan[k], { icon: L.divIcon({ className: "", html: `<div class="bus" style="background:${c}">${t}</div>`, iconSize: [26, 26] }) }).addTo(planLayer));
+  if (!plan.a || !plan.b) { $("planMsg").textContent = "Falta " + (plan.a ? "el destino." : "el origen."); return; }
+  $("planMsg").textContent = "Calculando…"; $("planOut").innerHTML = "";
+  const q = `{ plan(date:"${$("planDate").value}", time:"${$("planTime").value}:00", from:{lat:${plan.a.lat},lon:${plan.a.lng}}, to:{lat:${plan.b.lat},lon:${plan.b.lng}},
+    transportModes:[{mode:TRANSIT},{mode:WALK}], numItineraries:1) { itineraries { duration walkDistance startTime endTime
+    legs { mode duration distance startTime from{name} to{name} route{shortName} legGeometry{points} } } } }`;
+  let it;
+  try {
+    const r = await fetch(OTP, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: q }) });
+    const j = await r.json();
+    if (j.errors) throw new Error(j.errors[0].message);
+    it = j.data.plan.itineraries[0];
+  } catch (e) {
+    $("planMsg").textContent = "Planificador no disponible (¿está corriendo OpenTripPlanner en " + OTP + "?).";
+    console.error(e); return;
+  }
+  if (!it) { $("planMsg").textContent = "Sin ruta en ese horario (servicio 05:00–21:00 aprox.)."; return; }
+  const hm = ms => new Date(ms).toLocaleTimeString("es-GT", { hour: "2-digit", minute: "2-digit", timeZone: "America/Guatemala" });
+  $("planMsg").textContent = `${Math.round(it.duration / 60)} min · ${hm(it.startTime)} → ${hm(it.endTime)} · caminando ${Math.round(it.walkDistance)} m`;
+  $("planOut").innerHTML = it.legs.map(l => l.mode === "WALK"
+    ? `<li>🚶 Caminar ${Math.max(1, Math.round(l.duration / 60))} min (${Math.round(l.distance)} m) → ${l.to.name === "Destination" ? "destino" : l.to.name}</li>`
+    : `<li>🚌 <b>Línea ${l.route.shortName}</b> ${hm(l.startTime)} · ${l.from.name} → ${l.to.name} (${Math.round(l.duration / 60)} min)</li>`).join("");
+  it.legs.forEach(l => L.polyline(decodePoly(l.legGeometry.points), l.mode === "WALK"
+    ? { color: "#333", weight: 4, dashArray: "2 8", opacity: .9 } : { color: "#e8590c", weight: 6, opacity: .85 }).addTo(planLayer));
+  map.fitBounds(L.featureGroup(planLayer.getLayers().filter(x => x.getBounds)).getBounds(), { padding: [30, 30] });
 }
 </script>
 </body>

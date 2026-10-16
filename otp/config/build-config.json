@@ -1,0 +1,5 @@
+{
+  "transitModelTimeZone": "America/Guatemala",
+  "maxTransferDuration": "10m",
+  "osmDefaults": { "timeZone": "America/Guatemala" }
+}

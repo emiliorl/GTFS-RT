@@ -62,6 +62,9 @@
   .opt { text-align:left; border:1px solid var(--line); background:var(--card); border-radius:var(--radius); padding:12px 14px; display:grid; gap:6px; }
   .opt[aria-pressed="true"] { border-color:var(--accent); box-shadow:0 0 0 3px var(--soft); }
   .opt .top { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .ride { font-size:12px; color:var(--ok); font-weight:600; margin-top:2px; }
+  .ride small { display:block; color:var(--muted); font-weight:400; }
+  .stepride { display:block; margin-top:3px; color:var(--ok); font-weight:600; font-size:12px; }
   .tag { font-size:11px; font-weight:700; letter-spacing:.02em; padding:2px 8px; border-radius:99px; background:var(--soft); color:var(--accent); vertical-align:middle; margin-left:4px; }
   .opt .dur { font-size:22px; font-weight:700; letter-spacing:-.02em; }
   .chain { display:flex; flex-wrap:wrap; gap:5px; align-items:center; color:var(--muted); font-size:13px; }
@@ -427,7 +430,7 @@ async function run() {
   const me = ++runId; $("msg").textContent = "Buscando la mejor ruta…";
   const q = `{ plan(date:"${$("pd").value}", time:"${$("pt").value}:00", from:{lat:${P.a.lat},lon:${P.a.lon}}, to:{lat:${P.b.lat},lon:${P.b.lon}},
     transportModes:[{mode:TRANSIT},{mode:WALK}], numItineraries:6${prefWalk() ? ", walkReluctance:6" : ""}) { itineraries { duration walkDistance startTime endTime
-    legs { mode duration distance startTime endTime from{name} to{name} route{shortName} legGeometry{points} } } } }`;
+    legs { mode duration distance startTime endTime from{name lat lon} to{name lat lon} route{shortName} legGeometry{points} } } } }`;
   let its;
   try {
     const r = await fetch(OTP, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: q }) });
@@ -444,9 +447,50 @@ async function run() {
   $("opts").innerHTML = P.opts.map((it, n) => {
     const chain = it.legs.map(l => l.mode === "WALK" ? `🚶${Math.max(1, Math.round(l.duration / 60))}'` : badge(l.route.shortName)).join(" › ");
     return `<button class="opt" data-n="${n}" aria-pressed="false"><div class="top"><span class="dur">${Math.round(it.duration / 60)} min${n === 0 && P.opts.length > 1 ? ` <span class="tag">${prefWalk() ? "menos caminata" : "más rápida"}</span>` : ""}</span><span class="muted">${hm(it.startTime)} → ${hm(it.endTime)}</span></div>
-      <div class="chain">${chain}</div><div class="muted">Caminando ${Math.round(it.walkDistance)} m</div></button>`; }).join("");
+      <div class="chain">${chain}</div><div class="muted">Caminando ${Math.round(it.walkDistance)} m</div><div class="ride" data-n="${n}"></div></button>`; }).join("");
   document.querySelectorAll(".opt").forEach(b => b.onclick = () => select(Number(b.dataset.n)));
   select(0);
+  annotateRides(me);
+}
+
+// ---- ride-hailing alternative for long walks (taxi / Uber / inDrive): car time from OTP's street graph, with ESTIMATED traffic and pickup wait
+const RIDE_WAIT_MIN = 5, TRAFFIC = 1.5, LONG_WALK_S = 15 * 60, MIN_SAVING = 5;
+const rideCache = {};
+function rideEstimate(l) {
+  const key = [l.from.lat, l.from.lon, l.to.lat, l.to.lon].map(v => v.toFixed(4)).join(",");
+  if (!rideCache[key]) rideCache[key] = (async () => {
+    try {
+      const q = `{ plan(date:"${$("pd").value}", time:"${$("pt").value}:00", from:{lat:${l.from.lat},lon:${l.from.lon}}, to:{lat:${l.to.lat},lon:${l.to.lon}}, transportModes:[{mode:CAR}], numItineraries:1) { itineraries { legs { mode duration } } } }`;
+      const r = await fetch(OTP, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: q }) });
+      const j = await r.json(); const leg = j.data.plan.itineraries[0].legs.find(x => x.mode === "CAR");
+      return leg ? leg.duration : null;
+    } catch (e) { return null; }
+  })();
+  return rideCache[key].then(drive => {
+    if (drive == null) return null;
+    const driveMin = Math.ceil(drive * TRAFFIC / 60), walkMin = Math.round(l.duration / 60), rideMin = RIDE_WAIT_MIN + driveMin;
+    return { walkMin, driveMin, rideMin, save: walkMin - rideMin };
+  });
+}
+function rideLine(l) {
+  const r = l.ride;
+  return r && r.save >= MIN_SAVING ? `<span class="stepride">🚕 En taxi/Uber/inDrive ≈ ${r.rideMin} min (${RIDE_WAIT_MIN} de espera + ${r.driveMin} de viaje): ahorras ≈ ${r.save} min</span>` : "";
+}
+async function annotateRides(me) {
+  await Promise.all(P.opts.map(async it => {
+    const longs = it.legs.filter(l => l.mode === "WALK" && l.duration >= LONG_WALK_S);
+    const res = await Promise.all(longs.map(rideEstimate));
+    longs.forEach((l, i) => { l.ride = res[i]; });
+    it.rideSave = res.reduce((a, r) => a + (r && r.save >= MIN_SAVING ? r.save : 0), 0);
+  }));
+  if (me !== runId) return;
+  P.opts.forEach((it, n) => {
+    const el = document.querySelector(`.ride[data-n="${n}"]`); if (!el) return;
+    const mins = Math.round(it.duration / 60);
+    el.innerHTML = it.rideSave > 0
+      ? `🚕 Si pides taxi/Uber/inDrive en la caminata larga: llegas ≈ ${it.rideSave} min antes (${mins} → ${mins - it.rideSave} min)<small>Estimado: ${RIDE_WAIT_MIN} min de espera y tráfico ×${TRAFFIC}; el precio no incluido.</small>` : "";
+  });
+  if (P.opts[P.sel]) select(P.sel);
 }
 function select(n) {
   P.sel = n; const it = P.opts[n];
@@ -458,7 +502,7 @@ function select(n) {
     else { casing(pts, 7).addTo(planLayer); L.polyline(pts, { color: col(l.route.shortName)[0], weight: 7, opacity: 1 }).addTo(planLayer); }
   });
   $("steps").innerHTML = `<li><span class="t">${hm(it.startTime)}</span><div class="b walk"><strong>${P.a.name}</strong></div></li>` + it.legs.map(l => l.mode === "WALK"
-    ? `<li><span class="t"></span><div class="b walk"><strong>Caminar ${Math.max(1, Math.round(l.duration / 60))} min</strong><small>${Math.round(l.distance)} m hasta ${l.to.name === "Destination" ? "tu destino" : l.to.name}</small></div></li>`
+    ? `<li><span class="t"></span><div class="b walk"><strong>Caminar ${Math.max(1, Math.round(l.duration / 60))} min</strong><small>${Math.round(l.distance)} m hasta ${l.to.name === "Destination" ? "tu destino" : l.to.name}</small>${rideLine(l)}</div></li>`
     : `<li><span class="t">${hm(l.startTime)}</span><div class="b" style="--c:${col(l.route.shortName)[0]}"><strong>${badge(l.route.shortName)} ${l.from.name}</strong><small>${Math.round(l.duration / 60)} min en bus hasta ${l.to.name}</small></div></li>`).join("")
     + `<li><span class="t">${hm(it.endTime)}</span><div class="b walk"><strong>${P.b.name}</strong></div></li>`;
   $("detail").hidden = false; fitPlan();

@@ -62,6 +62,7 @@
   .opt { text-align:left; border:1px solid var(--line); background:var(--card); border-radius:var(--radius); padding:12px 14px; display:grid; gap:6px; }
   .opt[aria-pressed="true"] { border-color:var(--accent); box-shadow:0 0 0 3px var(--soft); }
   .opt .top { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .tag { font-size:11px; font-weight:700; letter-spacing:.02em; padding:2px 8px; border-radius:99px; background:var(--soft); color:var(--accent); vertical-align:middle; margin-left:4px; }
   .opt .dur { font-size:22px; font-weight:700; letter-spacing:-.02em; }
   .chain { display:flex; flex-wrap:wrap; gap:5px; align-items:center; color:var(--muted); font-size:13px; }
   .badge { display:inline-grid; place-items:center; min-width:28px; height:24px; padding:0 7px; border-radius:7px; font-weight:800; font-size:13px; color:#fff; }
@@ -128,6 +129,12 @@
             <input id="ib" placeholder="Destino: estación o clic en el mapa" autocomplete="off" aria-label="Destino">
             <button class="iconbtn" id="pb" title="Elegir en el mapa" aria-label="Elegir destino en el mapa">📍</button>
             <div class="sugg" id="sb" hidden></div>
+          </div>
+        </div>
+        <div class="when">
+          <div class="seg" role="group" aria-label="Prioridad" id="prefer">
+            <button data-p="fast" aria-pressed="true">Más rápida</button>
+            <button data-p="walk" aria-pressed="false">Menos caminata</button>
           </div>
         </div>
         <div class="when">
@@ -373,6 +380,8 @@ function decodePoly(str) {
 function otpState(ok) { const p = $("otpState"); p.className = "pill " + (ok ? "ok" : "off"); p.textContent = ok ? "Planificador conectado" : "Planificador sin conexión"; }
 fetch(OTP, { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"query":"{__typename}"}' }).then(r => otpState(r.ok)).catch(() => otpState(false));
 
+const prefWalk = () => document.querySelector("#prefer [aria-pressed=true]").dataset.p === "walk";
+document.querySelectorAll("#prefer button").forEach(b => b.onclick = () => { document.querySelectorAll("#prefer button").forEach(x => x.setAttribute("aria-pressed", x === b)); run(); });
 let runId = 0;
 async function run() {
   planLayer.clearLayers(); $("opts").innerHTML = ""; $("detail").hidden = true; P.opts = [];
@@ -381,7 +390,7 @@ async function run() {
   if (!P.a || !P.b) { $("msg").textContent = !P.a && !P.b ? "Escribe una estación o toca 📍 y luego un punto del mapa." : `Falta ${P.a ? "el destino" : "el origen"}.`; fitPlan(); return; }
   const me = ++runId; $("msg").textContent = "Buscando la mejor ruta…";
   const q = `{ plan(date:"${$("pd").value}", time:"${$("pt").value}:00", from:{lat:${P.a.lat},lon:${P.a.lon}}, to:{lat:${P.b.lat},lon:${P.b.lon}},
-    transportModes:[{mode:TRANSIT},{mode:WALK}], numItineraries:4) { itineraries { duration walkDistance startTime endTime
+    transportModes:[{mode:TRANSIT},{mode:WALK}], numItineraries:6${prefWalk() ? ", walkReluctance:6" : ""}) { itineraries { duration walkDistance startTime endTime
     legs { mode duration distance startTime endTime from{name} to{name} route{shortName} legGeometry{points} } } } }`;
   let its;
   try {
@@ -392,11 +401,13 @@ async function run() {
   if (me !== runId) return;
   const seen = new Set();
   P.opts = its.filter(it => { const k = it.legs.map(l => l.mode + (l.route ? l.route.shortName : "") + l.from.name + l.to.name).join("|"); if (seen.has(k)) return false; seen.add(k); return true; });
+  const byTime = (a, b) => a.endTime - b.endTime || a.walkDistance - b.walkDistance, byWalk = (a, b) => a.walkDistance - b.walkDistance || a.endTime - b.endTime;
+  P.opts.sort(prefWalk() ? byWalk : byTime);
   if (!P.opts.length) { $("msg").textContent = "No hay ruta en ese horario. Prueba otra hora (el servicio va de 05:00 a 21:00 aprox.)."; fitPlan(); return; }
-  $("msg").textContent = P.opts.length > 1 ? "Elige una opción:" : "Mejor opción:";
+  $("msg").textContent = P.opts.length > 1 ? (prefWalk() ? "Ordenadas de menos a más caminata:" : "Ordenadas de la más rápida a la más lenta:") : "Mejor opción:";
   $("opts").innerHTML = P.opts.map((it, n) => {
     const chain = it.legs.map(l => l.mode === "WALK" ? `🚶${Math.max(1, Math.round(l.duration / 60))}'` : badge(l.route.shortName)).join(" › ");
-    return `<button class="opt" data-n="${n}" aria-pressed="false"><div class="top"><span class="dur">${Math.round(it.duration / 60)} min</span><span class="muted">${hm(it.startTime)} → ${hm(it.endTime)}</span></div>
+    return `<button class="opt" data-n="${n}" aria-pressed="false"><div class="top"><span class="dur">${Math.round(it.duration / 60)} min${n === 0 && P.opts.length > 1 ? ` <span class="tag">${prefWalk() ? "menos caminata" : "más rápida"}</span>` : ""}</span><span class="muted">${hm(it.startTime)} → ${hm(it.endTime)}</span></div>
       <div class="chain">${chain}</div><div class="muted">Caminando ${Math.round(it.walkDistance)} m</div></button>`; }).join("");
   document.querySelectorAll(".opt").forEach(b => b.onclick = () => select(Number(b.dataset.n)));
   select(0);

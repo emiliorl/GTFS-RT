@@ -76,6 +76,9 @@
 
   /* lines */
   .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .dirs { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .dirs button { text-align:left; border:1px solid var(--line); background:var(--bg); border-radius:10px; padding:7px 10px; font-size:13px; font-weight:600; color:var(--muted); }
+  .dirs button[aria-pressed="true"] { background:var(--soft); color:var(--accent); border-color:var(--accent); }
   .netlabel { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:10px 0 4px; }
   .netlabel:first-child { margin-top:0; }
   .chip { border:0; border-radius:10px; padding:3px; background:none; }
@@ -149,6 +152,7 @@
         <label class="l">Línea</label>
         <div class="chips" id="chips" role="group" aria-label="Líneas"></div>
         <p class="muted" id="lineName" style="margin:10px 0 0"></p>
+        <div class="dirs" id="dirs" hidden></div>
       </div>
       <div class="card">
         <label class="l" for="stop">Estación</label>
@@ -209,9 +213,10 @@ Promise.all([fetch("data/index.json").then(r => r.json()), fetch("data/stops.jso
   index = i; stops = s;
   index.forEach(l => { if (l.color) COLORS[l.short] = ["#" + l.color, "#" + (l.text || "FFFFFF")]; });   // TuBus colours come from its feed
   const NETS = { transmetro: "Transmetro", tubus: "TuBus" };
-  $("chips").innerHTML = Object.entries(NETS).map(([k, label]) => index.some(l => l.network === k)
-    ? `<div class="netlabel">${label}</div><div class="chips">` + index.filter(l => l.network === k).map(l =>
-      `<button class="chip" data-id="${l.id}" style="--c:${col(l.short)[0]}" aria-pressed="false" title="${l.name}">${badge(l.short)}</button>`).join("") + "</div>" : "").join("");
+  const firsts = index.filter((l, n) => index.findIndex(x => x.network === l.network && x.short === l.short) === n);
+  $("chips").innerHTML = Object.entries(NETS).map(([k, label]) => firsts.some(l => l.network === k)
+    ? `<div class="netlabel">${label}</div><div class="chips">` + firsts.filter(l => l.network === k).map(l =>
+      `<button class="chip" data-id="${l.id}" data-short="${l.short}" style="--c:${col(l.short)[0]}" aria-pressed="false" title="${l.name}">${badge(l.short)}</button>`).join("") + "</div>" : "").join("");
   document.querySelectorAll(".chip").forEach(b => b.onclick = () => loadLine(b.dataset.id));
   if (index.some(l => l.id === INIT_HASH)) { lineId = INIT_HASH; setTab("lines"); loadLine(INIT_HASH); }
 }).catch(e => { $("msg").textContent = "No se pudieron cargar los datos."; console.error(e); });
@@ -222,8 +227,12 @@ function fitLine() { const b = linesLayer.getLayers().find(l => l.getBounds); if
 function loadLine(id) {
   lineId = id;
   const meta = index.find(l => l.id === id);
-  document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", b.dataset.id === id));
-  $("lineName").innerHTML = `<b>${meta.name}</b> · sentido ${meta.headsign}`;
+  document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", b.dataset.short === meta.short && index.find(l => l.id === b.dataset.id).network === meta.network));
+  const sibs = index.filter(l => l.network === meta.network && l.short === meta.short);
+  $("dirs").hidden = sibs.length < 2;
+  $("dirs").innerHTML = sibs.map(l => `<button data-id="${l.id}" aria-pressed="${l.id === id}">→ ${l.headsign}</button>`).join("");
+  document.querySelectorAll("#dirs button").forEach(b => b.onclick = () => loadLine(b.dataset.id));
+  $("lineName").innerHTML = `<b>${meta.name}</b>` + (sibs.length < 2 ? ` · sentido ${meta.headsign}` : "");
   $("vpLink").href = `feed/${id}/vehicle_positions.pb`; $("tuLink").href = `feed/${id}/trip_updates.pb`;
   $("next").textContent = "…";
   history.replaceState(null, "", "#" + id);

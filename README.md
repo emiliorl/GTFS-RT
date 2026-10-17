@@ -45,6 +45,30 @@ tiene un panel "Planificar viaje": se elige origen y destino sobre el mapa y se 
 
 ## TuBus (feed aparte)
 
+`python build_tubus.py` genera `gtfs_tubus/` y `tubus_gtfs_draft.zip` a partir de `reference/Tubus/`. Es un feed **separado** del de
+Transmetro pero con identificadores propios (agencia `TUBUS`, rutas `TB5`, `TB104`…, paradas `tb_NNN`, servicios `TB_WEEKDAY`…), así que
+se pueden cargar juntos (OpenTripPlanner lee varios zips; `otp/run.sh` ya lo hace) o fusionar concatenando archivos.
+Rutas: 5, 104, 105, 305, 402, 801 y 802; cada una con dos sentidos (`direction_id` 0 y 1).
+
+**Fuentes (todas de las páginas de la Municipalidad):**
+- KML de cada ruta (Google My Maps): trazado y coordenadas de las paradas.
+- Diagramas de cada ruta (`Mapa-*.png`, `*rutayestaciones.png`): orden de paradas de cada sentido (columna derecha = ida desde la primera
+  terminal; columna izquierda = regreso), transcrito a mano en `SEQ` dentro de `build_tubus.py`.
+- Imágenes "Horarios de servicio": lunes a sábado 5:30–19:00; domingo y festivos 6:00–18:00 (inicio y fin en las paradas extremo).
+- Colores: iconos de cada ruta.
+
+**Estimado o supuesto (no publicado):**
+- Frecuencias: 10 min en horas pico (06–09 y 17–20), 15 min el resto, sábado 15 y domingo 20; velocidad 16 km/h + 20 s por parada.
+- Ruta 5 (estaciones con nombre): las plataformas Norte/Sur se asignan ida = Norte, regreso = Sur. Solo Palacio de los Deportes está
+  confirmado por las direcciones del diagrama (24 calle y 9ª av. = Norte); Cipreses y Jardines de la Asunción siguen el mismo criterio.
+- El diagrama de la ruta 104 coloca #61 entre #54 y #55 y #62 entre #29 y #30; #128 (ruta 105) y #84 (ruta 402) forman parte de su ruta.
+
+## Carpetas de referencia
+
+`reference/Transmetro/` (páginas de las líneas 1, 2, 6, 7, 12, 13 y 18 con sus KML) y `reference/Tubus/` (índice de TuBus, ruta 5 y rutas 104, 105, 305, 402, 801, 802 con sus KML). Son privadas: solo los KML y `SOURCES.txt` van en el archivo cifrado.
+
+## TuBus (feed aparte)
+
 `python build_tubus.py` genera `gtfs_tubus/` y `tubus_gtfs_draft.zip` a partir de `reference/Tubus/` (KML de cada ruta: trazado y
 paradas numeradas). Es un feed **separado** del de Transmetro pero con identificadores propios (agencia `TUBUS`, rutas `TB5`, `TB104`…,
 paradas `tb_NNN`, servicios `TB_WEEKDAY`…), así que se pueden cargar juntos (OpenTripPlanner lee varios zips; `otp/run.sh` ya lo hace)

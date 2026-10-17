@@ -77,6 +77,15 @@
 
   /* lines */
   .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .rowhead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  .rowhead .l { margin:0; }
+  .link { border:0; background:none; color:var(--accent); font-size:12px; font-weight:600; padding:2px 6px; border-radius:6px; }
+  .link:hover { background:var(--soft); }
+  .rows { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+  .row { display:flex; align-items:center; gap:8px; font-size:13px; }
+  .row .dest { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); }
+  .row b { font-variant-numeric:tabular-nums; }
+  .linkbtn { margin-top:12px; width:100%; border:1px solid var(--accent); background:var(--soft); color:var(--accent); border-radius:10px; padding:8px 10px; font-weight:600; }
   .dirs { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
   .dirs button { text-align:left; border:1px solid var(--line); background:var(--bg); border-radius:10px; padding:7px 10px; font-size:13px; font-weight:600; color:var(--muted); }
   .dirs button[aria-pressed="true"] { background:var(--soft); color:var(--accent); border-color:var(--accent); }
@@ -150,16 +159,17 @@
       <div><span class="pill" id="otpState">Comprobando planificador…</span></div>
       <p class="muted" id="msg">Escribe una estación o toca 📍 y luego un punto del mapa. Caminar y los trasbordos se calculan solos.</p>
       <div class="opts" id="opts"></div>
-      <div class="card" id="detail" hidden><ol class="steps" id="steps"></ol></div>
+      <div class="card" id="detail" hidden><ol class="steps" id="steps"></ol><button class="linkbtn" id="showLive">Ver estas líneas en vivo →</button></div>
     </section>
 
     <!-- ===== Líneas en vivo ===== -->
     <section class="scroll" id="tab-lines" aria-labelledby="t-lines" hidden>
       <div class="card">
-        <label class="l">Línea</label>
-        <div class="chips" id="chips" role="group" aria-label="Líneas"></div>
-        <p class="muted" id="lineName" style="margin:10px 0 0"></p>
+        <div class="rowhead"><label class="l">Líneas (puedes elegir varias)</label>
+          <span><button class="link" id="selAll">Todas</button><button class="link" id="selNone">Ninguna</button></span></div>
+        <div id="chips" role="group" aria-label="Líneas"></div>
         <div class="dirs" id="dirs" hidden></div>
+        <p class="muted" id="lineName" style="margin:10px 0 0"></p>
       </div>
       <div class="card">
         <label class="l" for="stop">Estación</label>
@@ -167,7 +177,7 @@
         <div style="margin-top:14px">
           <div class="bignum" id="next">…</div>
           <div class="muted" id="nextSub"></div>
-          <div class="nexts" id="upcoming"></div>
+          <div class="rows" id="upcoming"></div>
         </div>
       </div>
       <div class="card controls">
@@ -177,7 +187,7 @@
         </div>
       </div>
       <p class="muted">Autobuses simulados con frecuencias estimadas: sirve para probar la cadena GTFS-RT, no son datos reales.
-        Feeds de muestra: <a id="vpLink" href="#">posiciones</a> · <a id="tuLink" href="#">llegadas</a>.</p>
+        <span id="feedLinks"></span></p>
     </section>
     <div class="note">Datos no oficiales. Mapa © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>.</div>
   </aside>
@@ -203,16 +213,16 @@ const map = L.map("map");
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
 map.setView([14.6, -90.52], 12);
 const linesLayer = L.layerGroup(), planLayer = L.layerGroup().addTo(map);
-let tab = "plan", stops = [], index = [], lineId = null;
+let tab = "plan", stops = [], index = [], touched = false, dirOnly = null;
+const sel = new Set();      // selected routes: "network:short"
 const INIT_HASH = location.hash.slice(1);   // read before setTab() rewrites the hash
 
 // ------------------------------------------------------------------ tabs
 function setTab(t) {
   tab = t;
   for (const k of ["plan", "lines"]) { $("tab-" + k).hidden = k !== t; $("t-" + k).setAttribute("aria-selected", k === t); }
-  if (t === "lines") { map.removeLayer(planLayer); linesLayer.addTo(map); if (!lineId && index.length) loadLine(index[0].id); else fitLine(); }
-  else { map.removeLayer(linesLayer); planLayer.addTo(map); fitPlan(); }
-  history.replaceState(null, "", t === "lines" && lineId ? "#" + lineId : "#plan");
+  if (t === "lines") { map.removeLayer(planLayer); linesLayer.addTo(map); if (!sel.size && !touched && index.length) toggleRoute(routeKey(index[0])); else refreshLines(true); }
+  else { map.removeLayer(linesLayer); planLayer.addTo(map); fitPlan(); writeHash(); }
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(b.dataset.tab));
 
@@ -220,82 +230,108 @@ Promise.all([fetch("data/index.json").then(r => r.json()), fetch("data/stops.jso
   index = i; stops = s;
   index.forEach(l => { if (l.color) COLORS[l.short] = ["#" + l.color, "#" + (l.text || "FFFFFF")]; });   // TuBus colours come from its feed
   const NETS = { transmetro: "Transmetro", tubus: "TuBus" };
-  const firsts = index.filter((l, n) => index.findIndex(x => x.network === l.network && x.short === l.short) === n);
+  const firsts = index.filter((l, n) => index.findIndex(x => routeKey(x) === routeKey(l)) === n);
   $("chips").innerHTML = Object.entries(NETS).map(([k, label]) => firsts.some(l => l.network === k)
     ? `<div class="netlabel">${label}</div><div class="chips">` + firsts.filter(l => l.network === k).map(l =>
-      `<button class="chip" data-id="${l.id}" data-short="${l.short}" style="--c:${col(l.short)[0]}" aria-pressed="false" title="${l.name}">${badge(l.short)}</button>`).join("") + "</div>" : "").join("");
-  document.querySelectorAll(".chip").forEach(b => b.onclick = () => loadLine(b.dataset.id));
-  if (index.some(l => l.id === INIT_HASH)) { lineId = INIT_HASH; setTab("lines"); loadLine(INIT_HASH); }
+      `<button class="chip" data-key="${routeKey(l)}" style="--c:${col(l.short)[0]}" aria-pressed="false" title="${l.name}">${badge(l.short)}</button>`).join("") + "</div>" : "").join("");
+  document.querySelectorAll(".chip").forEach(b => b.onclick = () => toggleRoute(b.dataset.key));
+  $("selAll").onclick = () => { touched = true; firsts.forEach(l => sel.add(routeKey(l))); dirOnly = null; refreshLines(true); };
+  $("selNone").onclick = () => { touched = true; sel.clear(); dirOnly = null; refreshLines(true); };
+  // deep links: #l=18,104 (routes) or a pattern id like #TB104_1_WEEKDAY (that route and direction)
+  if (INIT_HASH.startsWith("l=")) {
+    INIT_HASH.slice(2).split(",").forEach(sh => { const m = index.find(l => l.short === sh); if (m) sel.add(routeKey(m)); });
+  } else if (index.some(l => l.id === INIT_HASH)) { const m = index.find(l => l.id === INIT_HASH); sel.add(routeKey(m)); dirOnly = m.id; }
+  if (sel.size) { touched = true; setTab("lines"); }
+  else if (tab === "plan") writeHash();
 }).catch(e => { $("msg").textContent = "No se pudieron cargar los datos."; console.error(e); });
 
-// ------------------------------------------------------------------ lines demo
-let rafId = null;
-function fitLine() { const b = linesLayer.getLayers().find(l => l.getBounds); if (b) map.fitBounds(b.getBounds(), { padding: [30, 30] }); }
-function loadLine(id) {
-  lineId = id;
-  const meta = index.find(l => l.id === id);
-  document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", b.dataset.short === meta.short && index.find(l => l.id === b.dataset.id).network === meta.network));
-  const sibs = index.filter(l => l.network === meta.network && l.short === meta.short);
-  $("dirs").hidden = sibs.length < 2;
-  $("dirs").innerHTML = sibs.map(l => `<button data-id="${l.id}" aria-pressed="${l.id === id}">→ ${l.headsign}</button>`).join("");
-  document.querySelectorAll("#dirs button").forEach(b => b.onclick = () => loadLine(b.dataset.id));
-  $("lineName").innerHTML = `<b>${meta.name}</b>` + (sibs.length < 2 ? ` · sentido ${meta.headsign}` : "");
-  $("vpLink").href = `feed/${id}/vehicle_positions.pb`; $("tuLink").href = `feed/${id}/trip_updates.pb`;
-  $("next").textContent = "…";
-  history.replaceState(null, "", "#" + id);
-  fetch(`data/${id}.json`).then(r => r.json()).then(d => startLine(d, meta)).catch(e => { $("next").textContent = "Sin datos"; console.error(e); });
+// ------------------------------------------------------------------ live lines (several at once)
+const cache = {};                 // pattern id -> replay data (loaded on demand)
+const markers = {};               // "<pattern>|<entity>" -> leaflet marker
+let rafId = null, frameI = 0, acc = 0, lastT = performance.now(), act = [], refreshId = 0;
+function routeKey(m) { return m.network + ":" + m.short; }
+function writeHash() { history.replaceState(null, "", tab === "lines" && sel.size ? "#l=" + [...sel].map(k => k.split(":")[1]).join(",") : "#plan"); }
+function toggleRoute(key) { touched = true; sel.has(key) ? sel.delete(key) : sel.add(key); dirOnly = null; refreshLines(true); }
+function activeMetas() {
+  const m = index.filter(l => sel.has(routeKey(l)));
+  return sel.size === 1 && dirOnly ? m.filter(l => l.id === dirOnly) : m;
 }
-function startLine(d, meta) {
-  if (rafId) cancelAnimationFrame(rafId);
-  linesLayer.clearLayers();
-  const color = col(meta.short)[0], line = d.line, frames = d.frames;
-  casing(line.shape, 5).addTo(linesLayer);
-  const shape = L.polyline(line.shape, { color, weight: 5, opacity: 1 }).addTo(linesLayer);
-  map.fitBounds(shape.getBounds(), { padding: [30, 30] });
-  const names = Object.fromEntries(line.stops.map(s => [s.id, s.name]));
-  const keep = $("stop").value;
-  $("stop").innerHTML = "";
-  const seen = new Set();
-  line.stops.forEach(s => {
-    L.circleMarker([s.lat, s.lon], { radius: 5, color: "#fff", weight: 2, fillColor: "#222", fillOpacity: 1 }).addTo(linesLayer)
-      .bindTooltip(s.name).on("click", () => { $("stop").value = s.id; render(); });
-    if (!seen.has(s.id)) { seen.add(s.id); $("stop").add(new Option(s.name, s.id)); }
-  });
-  $("stop").value = seen.has(keep) ? keep : line.stops[Math.floor(line.stops.length / 3)].id;
-  $("stop").onchange = () => render();
-  const markers = {};
-  let i = 0, acc = 0, last = performance.now();
-  const icon = () => L.divIcon({ className: "", html: `<div class="busicon" style="background:${color};color:${col(meta.short)[1]}">${meta.short}</div>`, iconSize: [30, 30] });
-
-  function render() {
-    const f = frames[i], now = Number(f.vp.header.timestamp);
-    $("clock").textContent = fmtClock(f.t);
-    const alive = new Set();
-    (f.vp.entity || []).forEach(e => {
-      const v = e.vehicle, ll = [v.position.latitude, v.position.longitude];
-      alive.add(e.id);
-      if (!markers[e.id]) markers[e.id] = L.marker(ll, { icon: icon() }).addTo(linesLayer);
-      markers[e.id].setLatLng(ll).bindTooltip(`${v.vehicle.label} · próxima: ${names[v.stopId] || v.stopId}`);
+function fitLine() {
+  const g = linesLayer.getLayers().filter(l => l.getBounds && l.options.fitMe);
+  if (g.length) map.fitBounds(g.reduce((a, l) => a.extend(l.getBounds()), L.latLngBounds(g[0].getBounds())), { padding: [30, 30] });
+}
+async function refreshLines(fit) {
+  const me = ++refreshId, metas = activeMetas();
+  document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", sel.has(b.dataset.key)));
+  // direction buttons only when exactly one route is selected and it has two directions
+  const one = sel.size === 1 ? index.filter(l => routeKey(l) === [...sel][0]) : [];
+  $("dirs").hidden = one.length < 2;
+  $("dirs").innerHTML = one.length < 2 ? "" : [`<button data-id="" aria-pressed="${!dirOnly}">Ambos sentidos</button>`,
+    ...one.map(l => `<button data-id="${l.id}" aria-pressed="${dirOnly === l.id}">→ ${l.headsign}</button>`)].join("");
+  document.querySelectorAll("#dirs button").forEach(b => b.onclick = () => { dirOnly = b.dataset.id || null; refreshLines(true); });
+  $("lineName").innerHTML = !sel.size ? "Marca una o más líneas para verlas en el mapa." :
+    sel.size === 1 ? `<b>${one[0].name}</b>` : `<b>${sel.size} líneas</b> · los buses y las llegadas de todas se muestran juntos`;
+  writeHash();
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  linesLayer.clearLayers(); Object.keys(markers).forEach(k => delete markers[k]); act = [];
+  if (!metas.length) { $("stop").innerHTML = ""; $("next").textContent = "—"; $("nextSub").textContent = ""; $("upcoming").innerHTML = ""; $("clock").textContent = "--:--:--"; $("feedLinks").innerHTML = ""; return; }
+  $("next").textContent = "…";
+  await Promise.all(metas.filter(m => !cache[m.id]).map(m => fetch(`data/${m.id}.json`).then(r => r.json()).then(d => { cache[m.id] = d; })))
+    .catch(e => { $("next").textContent = "Sin datos"; console.error(e); });
+  if (me !== refreshId || metas.some(m => !cache[m.id])) return;
+  act = metas.map(m => ({ meta: m, d: cache[m.id], color: col(m.short) }));
+  const stopMap = new Map();
+  act.forEach(({ meta, d, color }) => {
+    L.polyline(d.line.shape, { color: "#1b1f24", weight: 8, opacity: .4, lineCap: "round", interactive: false }).addTo(linesLayer);
+    L.polyline(d.line.shape, { color: color[0], weight: 5, opacity: 1, fitMe: true }).addTo(linesLayer);
+    d.line.stops.forEach(st => {
+      L.circleMarker([st.lat, st.lon], { radius: 5, color: "#fff", weight: 2, fillColor: "#222", fillOpacity: 1 })
+        .addTo(linesLayer).bindTooltip(st.name).on("click", () => { $("stop").value = st.id; render(); });
+      const e = stopMap.get(st.id) || { id: st.id, name: st.name, shorts: new Set() };
+      e.shorts.add(meta.short); stopMap.set(st.id, e);
     });
-    Object.keys(markers).forEach(k => { if (!alive.has(k)) { markers[k].remove(); delete markers[k]; } });
-    const stop = $("stop").value, arr = [];
-    (f.tu.entity || []).forEach(e => (e.tripUpdate.stopTimeUpdate || []).forEach(u => {
-      if (u.stopId === stop && Number(u.arrival.time) >= now) arr.push(Number(u.arrival.time));
-    }));
-    arr.sort((a, b) => a - b);
-    const mins = t => Math.max(0, Math.round((t - now) / 60));
-    if (!arr.length) { $("next").textContent = "—"; $("nextSub").textContent = "Aún sin predicciones para esta estación."; $("upcoming").innerHTML = ""; return; }
-    $("next").innerHTML = mins(arr[0]) === 0 ? "Llegando" : `${mins(arr[0])}<small>min</small>`;
-    $("nextSub").textContent = `Próximo bus en ${names[stop]}`;
-    $("upcoming").innerHTML = arr.slice(1, 4).map(t => `<span class="pill">luego +${mins(t)} min</span>`).join("");
-  }
-  function tick(t) {
-    acc += (t - last) / 1000 * Number(document.querySelector("#speed [aria-pressed=true]").dataset.s);
-    last = t;
-    while (acc >= d.step) { acc -= d.step; i = (i + 1) % frames.length; render(); }
-    rafId = requestAnimationFrame(tick);
-  }
+  });
+  const keep = $("stop").value;
+  const opts = [...stopMap.values()]; if (act.length > 1) opts.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  $("stop").innerHTML = ""; opts.forEach(o => $("stop").add(new Option(`${o.name} · ${[...o.shorts].join(", ")}`, o.id)));
+  $("stop").value = stopMap.has(keep) ? keep : opts[Math.floor(opts.length / 3)].id;
+  $("stop").onchange = () => render();
+  const f0 = act[0].meta;
+  $("feedLinks").innerHTML = `Feeds de muestra (${f0.name}): <a href="feed/${f0.id}/vehicle_positions.pb">posiciones</a> · <a href="feed/${f0.id}/trip_updates.pb">llegadas</a>.`;
+  if (fit) fitLine();
+  frameI = frameI % act[0].d.frames.length; acc = 0; lastT = performance.now();
   render(); rafId = requestAnimationFrame(tick);
+}
+function render() {
+  if (!act.length) return;
+  const f00 = act[0].d.frames[frameI], now0 = Number(f00.vp.header.timestamp);
+  $("clock").textContent = fmtClock(f00.t);
+  const alive = new Set(), stop = $("stop").value, arr = [];
+  act.forEach(({ meta, d, color }) => {
+    const f = d.frames[frameI % d.frames.length], names = Object.fromEntries(d.line.stops.map(s => [s.id, s.name]));
+    (f.vp.entity || []).forEach(e => {
+      const v = e.vehicle, k = meta.id + "|" + e.id, ll = [v.position.latitude, v.position.longitude]; alive.add(k);
+      if (!markers[k]) markers[k] = L.marker(ll, { icon: L.divIcon({ className: "", html: `<div class="busicon" style="background:${color[0]};color:${color[1]}">${meta.short}</div>`, iconSize: [30, 30] }) }).addTo(linesLayer);
+      markers[k].setLatLng(ll).bindTooltip(`Línea ${meta.short} → ${meta.headsign} · próxima: ${names[v.stopId] || v.stopId}`);
+    });
+    const times = [];
+    (f.tu.entity || []).forEach(e => (e.tripUpdate.stopTimeUpdate || []).forEach(u => { if (u.stopId === stop && Number(u.arrival.time) >= now0) times.push(Number(u.arrival.time)); }));
+    times.sort((a, b) => a - b);
+    if (times.length) arr.push({ meta, times });
+  });
+  Object.keys(markers).forEach(k => { if (!alive.has(k)) { markers[k].remove(); delete markers[k]; } });
+  arr.sort((a, b) => a.times[0] - b.times[0]);
+  const mins = t => Math.max(0, Math.round((t - now0) / 60)), nm = ($("stop").selectedOptions[0] || {}).text || "";
+  if (!arr.length) { $("next").textContent = "—"; $("nextSub").textContent = "Aún sin predicciones para esta estación."; $("upcoming").innerHTML = ""; return; }
+  $("next").innerHTML = mins(arr[0].times[0]) === 0 ? "Llegando" : `${mins(arr[0].times[0])}<small>min</small>`;
+  $("nextSub").innerHTML = `Próximo bus en ${nm.split(" · ")[0]} · ${badge(arr[0].meta.short)}`;
+  $("upcoming").innerHTML = arr.slice(0, 8).map(a => `<div class="row">${badge(a.meta.short)}<span class="dest">→ ${a.meta.headsign}</span><b>${mins(a.times[0]) === 0 ? "ya" : mins(a.times[0]) + " min"}</b>${a.times[1] !== undefined ? `<span class="muted">luego +${mins(a.times[1])}</span>` : ""}</div>`).join("");
+}
+function tick(t) {
+  const step = act[0].d.step;
+  acc += (t - lastT) / 1000 * Number(document.querySelector("#speed [aria-pressed=true]").dataset.s); lastT = t;
+  while (acc >= step) { acc -= step; frameI = (frameI + 1) % act[0].d.frames.length; render(); }
+  rafId = requestAnimationFrame(tick);
 }
 document.querySelectorAll("#speed button").forEach(b => b.onclick = () => document.querySelectorAll("#speed button").forEach(x => x.setAttribute("aria-pressed", x === b)));
 
@@ -426,6 +462,11 @@ function select(n) {
     : `<li><span class="t">${hm(l.startTime)}</span><div class="b" style="--c:${col(l.route.shortName)[0]}"><strong>${badge(l.route.shortName)} ${l.from.name}</strong><small>${Math.round(l.duration / 60)} min en bus hasta ${l.to.name}</small></div></li>`).join("")
     + `<li><span class="t">${hm(it.endTime)}</span><div class="b walk"><strong>${P.b.name}</strong></div></li>`;
   $("detail").hidden = false; fitPlan();
+  $("showLive").onclick = () => {
+    const shorts = [...new Set(it.legs.filter(l => l.mode !== "WALK").map(l => l.route.shortName))];
+    sel.clear(); dirOnly = null; touched = true; shorts.forEach(sh => { const m = index.find(l => l.short === sh); if (m) sel.add(routeKey(m)); });
+    setTab("lines");
+  };
 }
 setTab("plan");
 </script>

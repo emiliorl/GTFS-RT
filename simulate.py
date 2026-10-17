@@ -55,7 +55,7 @@ class Line:
         self.route_id, self.shape_id, self.headsign = trip["route_id"], trip["shape_id"], trip["trip_headsign"]
         self.direction = int(trip["direction_id"])
         route = next(r for r in read("routes.txt", gtfs) if r["route_id"] == self.route_id)
-        self.short = re.sub(r"^(TB|L)", "", self.route_id)     # 12E / 18R keep their suffix; TuBus routes are TB<n>
+        self.short = route["route_short_name"] if self.route_id.startswith("EX") else re.sub(r"^(TB|L)", "", self.route_id)   # 12E / 18R keep their suffix; TuBus routes are TB<n>; Express shows R10...
         self.color = route.get("route_color") or None; self.text_color = route.get("route_text_color") or None
         self.name = f"Línea {route['route_short_name']} – {route['route_long_name']}" if self.route_id.startswith("L") else route["route_long_name"]
 
@@ -217,7 +217,7 @@ def main():
         a.once = True
 
     if a.replay:
-        nets = [("transmetro", GTFS), ("tubus", ROOT / "gtfs_tubus")] if a.trip == "all" else [("transmetro", GTFS)]
+        nets = [("transmetro", GTFS), ("tubus", ROOT / "gtfs_tubus"), ("express", ROOT / "gtfs_express")] if a.trip == "all" else [("transmetro", GTFS)]
         data_dir = ROOT / "docs" / "data"
         shutil.rmtree(data_dir, ignore_errors=True)
         shutil.rmtree(ROOT / "docs" / "feed", ignore_errors=True)
@@ -240,7 +240,7 @@ def main():
                 p.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
                 write_feed(line, day, start_s, ROOT / "docs" / "feed" / tid)  # sample binary feeds next to the map
                 short = line.short
-                index.append({"id": tid, "network": net, "short": short, "name": line.name.split(" – ", 1)[-1], "headsign": line.headsign,
+                index.append({"id": tid, "network": net, "short": short, "name": line.name.split(" – ", 1)[-1] if line.route_id.startswith("L") else line.name, "headsign": line.headsign,
                               "color": line.color, "text": line.text_color, "label": f"{line.name} → {line.headsign}"})
                 for st in line.stops:
                     e = stops_idx.setdefault(st["id"], {"id": st["id"], "name": st["name"], "lat": st["lat"], "lon": st["lon"], "network": net, "lines": []})

@@ -15,3 +15,10 @@ __pycache__/
 /build_tubus.py
 /gtfs_tubus
 /tubus_gtfs_draft.zip
+/build_express.py
+/express_pdf.py
+/express_geo.py
+/express_route.py
+/osm_extract_express.py
+/gtfs_express
+/express_gtfs_draft.zip

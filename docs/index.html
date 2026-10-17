@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Transmetro y TuBus Guatemala</title>
+<title>Transmetro, TuBus y Express Guatemala</title>
 <meta name="description" content="Borrador no oficial: planificador de viajes a pie + bus y demo de buses simulados (GTFS-RT).">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
@@ -115,7 +115,7 @@
 <body>
 <div class="app">
   <aside class="panel">
-    <div class="brand"><b>🚌 Transmetro + TuBus</b><span>Guatemala · borrador no oficial</span></div>
+    <div class="brand"><b>🚌 Transmetro · TuBus · Express</b><span>Guatemala · borrador no oficial</span></div>
     <div class="tabs" role="tablist">
       <button role="tab" id="t-plan" aria-selected="true" data-tab="plan">Planificar viaje</button>
       <button role="tab" id="t-lines" aria-selected="false" data-tab="lines">Líneas en vivo</button>
@@ -229,7 +229,7 @@ document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setTab(
 Promise.all([fetch("data/index.json").then(r => r.json()), fetch("data/stops.json").then(r => r.json())]).then(([i, s]) => {
   index = i; stops = s;
   index.forEach(l => { if (l.color) COLORS[l.short] = ["#" + l.color, "#" + (l.text || "FFFFFF")]; });   // TuBus colours come from its feed
-  const NETS = { transmetro: "Transmetro", tubus: "TuBus" };
+  const NETS = { transmetro: "Transmetro", tubus: "TuBus", express: "Express Roosevelt (Innovate)" };
   const firsts = index.filter((l, n) => index.findIndex(x => routeKey(x) === routeKey(l)) === n);
   $("chips").innerHTML = Object.entries(NETS).map(([k, label]) => firsts.some(l => l.network === k)
     ? `<div class="netlabel">${label}</div><div class="chips">` + firsts.filter(l => l.network === k).map(l =>

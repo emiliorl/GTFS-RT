@@ -39,9 +39,26 @@ Guatemala (© colaboradores de OpenStreetMap, ODbL); caminar y los trasbordos en
 tiene un panel "Planificar viaje": se elige origen y destino sobre el mapa y se consulta `http://localhost:8080/otp/gtfs/v1`
 (otro servidor con `?otp=URL`). En GitHub Pages el panel solo funciona si hay un OTP accesible; el feed no se publica.
 
+## Express Roosevelt (Innovate GUA, feed aparte)
+
+`python build_express.py` genera `gtfs_express/` y `express_gtfs_draft.zip` para las rutas **R10, R11, R13 y R14** (agencia
+`INNOVATE`, rutas `EX10`…, paradas `ex_*`, servicios `EX_*`; se carga junto a los otros feeds con `otp/run.sh`).
+Innovate publica una tabla con direcciones sueltas, los horarios y un cartel PDF por ruta con el recorrido dibujado sobre un mapa
+satelital (rojo = ida, azul = vuelta) y las paradas numeradas; **no hay coordenadas ni KML**. Cómo se reconstruyó:
+1. Se georreferencia el mapa del cartel con paradas que coinciden con puntos conocidos (estaciones de Transmetro, centros comerciales
+   de OpenStreetMap) y se afina alineando el trazo dibujado con la red de calles de OSM (error medio a las calles: 4–8 m).
+2. Cada sentido se rehace como un camino sobre las calles de OSM que sigue el trazo dibujado y pasa por las paradas en orden,
+   eligiendo el lado de la calle de cada parada con una búsqueda conjunta (`express_route.py`).
+3. La posición de cada parada es el punto del camino junto a su círculo numerado.
+La longitud resultante de la R10 (15.8 km ida, 15.6 km vuelta) coincide con la tabla del cartel (15.7 y 15.5 km).
+
+**Estimado o supuesto:** frecuencias (15 min entre semana, 20 sábado, 30 domingo), velocidad (22 km/h + 20 s por parada) y el color de
+las rutas. Los horarios sí son los publicados. Las posiciones son aproximadas (decenas de metros) y algunos tramos de R11, R13 y R14 dan
+rodeos que habría que revisar. Quedan fuera R11A y las demás rutas Express; sus tablas ya están en `reference/Express/stops_table.json`.
+
 ## Carpetas de referencia
 
-`reference/Transmetro/` (páginas de las líneas 1, 2, 6, 7, 12, 13 y 18 con sus KML) y `reference/Tubus/` (índice de TuBus, ruta 5 y rutas 104, 105, 305, 402, 801, 802 con sus KML). Son privadas: solo los KML y `SOURCES.txt` van en el archivo cifrado.
+`reference/Transmetro/` (páginas de las líneas 1, 2, 6, 7, 12, 13 y 18 con sus KML), `reference/Tubus/` (índice de TuBus, ruta 5 y rutas 104, 105, 305, 402, 801, 802 con sus KML) y `reference/Express/` (página de rutas de Innovate, carteles PDF, tablas y extracto de OpenStreetMap). Son privadas: solo los KML y `SOURCES.txt` van en el archivo cifrado.
 
 ## TuBus (feed aparte)
 
@@ -65,7 +82,7 @@ Rutas: 5, 104, 105, 305, 402, 801 y 802; cada una con dos sentidos (`direction_i
 
 ## Carpetas de referencia
 
-`reference/Transmetro/` (páginas de las líneas 1, 2, 6, 7, 12, 13 y 18 con sus KML) y `reference/Tubus/` (índice de TuBus, ruta 5 y rutas 104, 105, 305, 402, 801, 802 con sus KML). Son privadas: solo los KML y `SOURCES.txt` van en el archivo cifrado.
+`reference/Transmetro/` (páginas de las líneas 1, 2, 6, 7, 12, 13 y 18 con sus KML), `reference/Tubus/` (índice de TuBus, ruta 5 y rutas 104, 105, 305, 402, 801, 802 con sus KML) y `reference/Express/` (página de rutas de Innovate, carteles PDF, tablas y extracto de OpenStreetMap). Son privadas: solo los KML y `SOURCES.txt` van en el archivo cifrado.
 
 ## TuBus (feed aparte)
 
